@@ -290,8 +290,8 @@
       <input type="range" id="spread" min="0.4" max="2.4" value="1.2" step="0.1" />
     </div>
     <div class="control-group">
-      <label>粒子尺寸 <span id="pointSizeLabel">0.03</span></label>
-      <input type="range" id="pointSize" min="0.015" max="0.08" value="0.03" step="0.005" />
+      <label>粒子尺寸 <span id="pointSizeLabel">0.025</span></label>
+      <input type="range" id="pointSize" min="0.012" max="0.08" value="0.025" step="0.004" />
     </div>
     <div class="control-group">
       <label>粒子主色</label>
@@ -395,7 +395,7 @@
     const params = {
       density: 4000,
       spread: 1.2,
-      pointSize: 0.03,
+      pointSize: 0.025,
       baseColor: new THREE.Color("#7db0ff"),
       preset: "nebula",
     };
@@ -564,7 +564,8 @@
 
     createParticles();
 
-    const cursorBaseRadius = 0.02;
+    const cursorBaseRadius = 0.018;
+    const fingerSizeFactor = 0.52;
     const cursor = new THREE.Mesh(
       new THREE.SphereGeometry(cursorBaseRadius, 12, 12),
       new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.6 })
@@ -576,7 +577,7 @@
         particles.material.size = params.pointSize;
         particles.material.needsUpdate = true;
       }
-      const cursorScale = (params.pointSize * 0.65) / cursorBaseRadius;
+      const cursorScale = (params.pointSize * fingerSizeFactor) / cursorBaseRadius;
       cursor.scale.setScalar(cursorScale);
     }
 
@@ -590,7 +591,7 @@
     });
 
     function addTrail(position, color) {
-      const radius = Math.max(0.012, params.pointSize * 0.9);
+      const radius = Math.max(0.009, params.pointSize * fingerSizeFactor * 0.95);
       const blob = new THREE.Mesh(new THREE.SphereGeometry(radius, 8, 8), trailMaterial.clone());
       blob.material.color.copy(color);
       blob.position.copy(position);
@@ -616,7 +617,7 @@
     }
 
     function normalizedToWorld(x, y, z = 0) {
-      const ndc = new THREE.Vector3((x - 0.5) * 2, -(y - 0.5) * 2, z * 2 - 1);
+      const ndc = new THREE.Vector3((0.5 - x) * 2, -(y - 0.5) * 2, z * 2 - 1);
       ndc.unproject(camera);
       return ndc;
     }
