@@ -363,6 +363,7 @@
 
     const container = document.getElementById("scene-container");
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     container.appendChild(renderer.domElement);
@@ -506,6 +507,30 @@
       particles = null;
     }
 
+    const particleTexture = (() => {
+      const size = 128;
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = size;
+      const ctx = canvas.getContext("2d");
+      const grd = ctx.createRadialGradient(
+        size / 2,
+        size / 2,
+        size * 0.08,
+        size / 2,
+        size / 2,
+        size * 0.5
+      );
+      grd.addColorStop(0, "rgba(255,255,255,0.95)");
+      grd.addColorStop(0.35, "rgba(255,255,255,0.9)");
+      grd.addColorStop(0.7, "rgba(255,255,255,0.35)");
+      grd.addColorStop(1, "rgba(255,255,255,0)");
+      ctx.fillStyle = grd;
+      ctx.fillRect(0, 0, size, size);
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      return texture;
+    })();
+
     function createParticles() {
       disposeParticles();
       const geometry = generateGeometry(params.density, params.preset);
@@ -515,12 +540,15 @@
       }
 
       const material = new THREE.PointsMaterial({
-        size: 0.025,
+        size: 0.04,
+        map: particleTexture,
         color: params.baseColor,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
         transparent: true,
         opacity: 0.9,
+        sizeAttenuation: true,
+        alphaTest: 0.01,
       });
 
       particles = new THREE.Points(geometry, material);
