@@ -1,0 +1,903 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WebGL + MediaPipe 手势粒子系统</title>
+  <style>
+    @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap");
+
+    :root {
+      color-scheme: dark;
+      --panel: rgba(15, 18, 23, 0.68);
+      --panel-stroke: rgba(255, 255, 255, 0.08);
+      --accent: #5b9dff;
+      --bg: radial-gradient(circle at 20% 20%, #0f172a, #090d14 50%, #05070c 100%);
+      --glow-1: #5b9dff;
+      --glow-2: #8c6cff;
+      --glow-3: #4bd6b5;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: #e6edf7;
+      font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      overflow: hidden;
+    }
+
+    #scene-container {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas { display: block; }
+
+    .chrome {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background: radial-gradient(120% 120% at 20% 20%, rgba(91, 157, 255, 0.08), transparent),
+                  radial-gradient(120% 120% at 80% 80%, rgba(132, 94, 255, 0.06), transparent);
+      mix-blend-mode: screen;
+      z-index: 1;
+    }
+
+    .aurora {
+      position: fixed;
+      inset: -20% -10% auto;
+      height: 60%;
+      pointer-events: none;
+      background: conic-gradient(from 180deg, rgba(91, 157, 255, 0.25), rgba(76, 214, 181, 0.35), rgba(140, 108, 255, 0.25), transparent 70%);
+      filter: blur(80px) saturate(140%);
+      opacity: 0.65;
+      animation: drift 18s ease-in-out infinite alternate;
+      z-index: 0;
+    }
+
+    @keyframes drift {
+      0% { transform: translate3d(-12%, 0, 0) rotate(2deg) scale(1); }
+      50% { transform: translate3d(8%, 6%, 0) rotate(-1deg) scale(1.05); }
+      100% { transform: translate3d(-6%, 10%, 0) rotate(3deg) scale(0.98); }
+    }
+
+    .panel {
+      position: fixed;
+      top: 20px;
+      left: 20px;
+      width: 320px;
+      backdrop-filter: blur(12px);
+      background: var(--panel);
+      border: 1px solid var(--panel-stroke);
+      border-radius: 16px;
+      padding: 18px 18px 12px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
+      z-index: 10;
+      pointer-events: auto;
+    }
+
+    .panel h1 {
+      margin: 0 0 12px;
+      font-size: 18px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .panel h1 span {
+      display: inline-flex;
+      width: 18px;
+      height: 18px;
+      border-radius: 6px;
+      background: linear-gradient(135deg, #5b9dff, #8c6cff);
+      box-shadow: 0 0 12px rgba(91, 157, 255, 0.6);
+    }
+
+    .control-group {
+      margin-bottom: 12px;
+    }
+
+    label {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+      color: #c9d4e6;
+      margin-bottom: 6px;
+    }
+
+    input[type="range"],
+    select,
+    button,
+    input[type="color"] {
+      width: 100%;
+      accent-color: var(--accent);
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--panel-stroke);
+      color: #e6edf7;
+      border-radius: 10px;
+      padding: 10px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: border 0.18s ease, transform 0.18s ease, background 0.18s ease;
+    }
+
+    button { text-transform: uppercase; letter-spacing: 0.05em; }
+
+    button:hover, select:hover, input:hover {
+      border-color: rgba(91, 157, 255, 0.5);
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    button:active {
+      transform: translateY(1px);
+    }
+
+    .row { display: flex; gap: 8px; }
+    .row > * { flex: 1; }
+
+    .meta {
+      font-size: 12px;
+      color: #90a2c2;
+      margin-top: 10px;
+      line-height: 1.4;
+      border-top: 1px solid var(--panel-stroke);
+      padding-top: 10px;
+    }
+
+    #video { display: none; }
+
+    .legend {
+      position: fixed;
+      right: 20px;
+      bottom: 20px;
+      background: var(--panel);
+      border-radius: 14px;
+      border: 1px solid var(--panel-stroke);
+      padding: 14px;
+      max-width: 360px;
+      backdrop-filter: blur(10px);
+      box-shadow: 0 14px 30px rgba(0, 0, 0, 0.25);
+      z-index: 10;
+    }
+
+    .legend h3 {
+      margin: 0 0 10px;
+      font-size: 14px;
+      letter-spacing: 0.03em;
+      color: #d6e2ff;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      background: rgba(255, 255, 255, 0.04);
+      border-radius: 20px;
+      margin: 4px 4px 0 0;
+      border: 1px solid var(--panel-stroke);
+      font-size: 12px;
+      color: #c9d4e6;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      background: #ff6b6b;
+      border-radius: 50%;
+      box-shadow: 0 0 8px rgba(255, 107, 107, 0.6);
+    }
+
+    .status-dot.on {
+      background: #3ad29f;
+      box-shadow: 0 0 8px rgba(58, 210, 159, 0.7);
+    }
+
+    .toolbar {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      display: flex;
+      gap: 10px;
+      z-index: 10;
+    }
+
+    .toolbar button {
+      width: auto;
+      padding: 10px 14px;
+      background: linear-gradient(135deg, rgba(91, 157, 255, 0.12), rgba(140, 108, 255, 0.12));
+      backdrop-filter: blur(8px);
+      border-radius: 12px;
+      border: 1px solid var(--panel-stroke);
+      font-size: 12px;
+      letter-spacing: 0.03em;
+    }
+
+    .hud {
+      position: fixed;
+      left: 50%;
+      bottom: 24px;
+      transform: translateX(-50%);
+      display: grid;
+      grid-template-columns: repeat(3, minmax(120px, 1fr));
+      gap: 12px;
+      z-index: 9;
+      pointer-events: none;
+    }
+
+    .hud-card {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--panel-stroke);
+      border-radius: 12px;
+      padding: 10px 12px;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.28);
+      backdrop-filter: blur(12px);
+    }
+
+    .hud .label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #94a7c7;
+      margin-bottom: 4px;
+    }
+
+    .hud .value {
+      font-size: 16px;
+      font-weight: 700;
+      color: #e6edf7;
+      text-shadow: 0 0 10px rgba(91, 157, 255, 0.4);
+    }
+
+    @media (max-width: 900px) {
+      .panel { width: calc(100% - 32px); left: 16px; right: 16px; }
+      .legend { right: 16px; left: 16px; bottom: 16px; }
+      .toolbar { right: 16px; left: 16px; justify-content: flex-end; flex-wrap: wrap; }
+      .hud { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); left: 16px; right: 16px; transform: none; }
+    }
+  </style>
+</head>
+<body>
+  <div id="scene-container"></div>
+  <div class="chrome"></div>
+  <div class="aurora"></div>
+
+  <div class="panel">
+    <h1><span></span>手势驱动粒子云</h1>
+    <div class="control-group">
+      <label>粒子模型
+        <select id="preset">
+          <option value="nebula">星云 Nebula</option>
+          <option value="tesseract">四维模型 Hypercube</option>
+          <option value="vortex">旋涡 Vortex</option>
+          <option value="ribbon">丝带 Ribbon</option>
+        </select>
+      </label>
+    </div>
+    <div class="control-group">
+      <label>粒子密度 <span id="densityLabel">4000</span></label>
+      <input type="range" id="density" min="800" max="8000" value="4000" step="200" />
+    </div>
+    <div class="control-group">
+      <label>扩散度 <span id="spreadLabel">1.2</span></label>
+      <input type="range" id="spread" min="0.4" max="2.4" value="1.2" step="0.1" />
+    </div>
+    <div class="control-group">
+      <label>粒子尺寸 <span id="pointSizeLabel">0.025</span></label>
+      <input type="range" id="pointSize" min="0.012" max="0.08" value="0.025" step="0.004" />
+    </div>
+    <div class="control-group">
+      <label>粒子主色</label>
+      <input type="color" id="color" value="#7db0ff" />
+    </div>
+    <div class="control-group">
+      <label>图片取色（粒子随图变色）</label>
+      <input type="file" id="paletteImage" accept="image/*" />
+    </div>
+    <div class="control-group">
+      <label>背景 / 镜头纹理</label>
+      <input type="file" id="bgImage" accept="image/*" />
+    </div>
+    <div class="row control-group">
+      <button id="start">启动摄像头</button>
+      <button id="capture">静态快照</button>
+    </div>
+    <div class="meta">
+      ✋ 伸直手指将粒子吸附到指尖，握拳释放并散开。<br />
+      🧭 食指移动可绘制粒子丝线，摇摆手掌可触发“情绪”变色。<br />
+      🖼 上传图片可取平均色调，换背景/镜头图营造不同舞台。
+    </div>
+  </div>
+
+  <div class="legend">
+    <h3>实时状态</h3>
+    <div class="pill"><span class="status-dot" id="camDot"></span>摄像头</div>
+    <div class="pill"><span class="status-dot" id="handDot"></span>手势</div>
+    <div class="pill"><span class="status-dot" id="moodDot"></span>情绪色</div>
+  </div>
+
+  <div class="toolbar">
+    <button id="resetView">重置视角</button>
+    <button id="toggleFog">关闭雾效</button>
+  </div>
+
+  <div class="hud">
+    <div class="hud-card">
+      <div class="label">当前预设</div>
+      <div class="value" id="hudPreset">星云 Nebula</div>
+    </div>
+    <div class="hud-card">
+      <div class="label">粒子</div>
+      <div class="value" id="hudDensity">4000</div>
+    </div>
+    <div class="hud-card">
+      <div class="label">扩散</div>
+      <div class="value" id="hudSpread">1.2</div>
+    </div>
+  </div>
+
+  <video id="video" playsinline></video>
+
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+  <script
+    async
+    crossorigin="anonymous"
+    src="https://ga.jspm.io/npm:es-module-shims@1.10.0/dist/es-module-shims.js"
+  ></script>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.164/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.164/examples/jsm/"
+      }
+    }
+  </script>
+  <script type="module">
+    import * as THREE from "three";
+    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+    const container = document.getElementById("scene-container");
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    container.appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 0, 8);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.enablePan = false;
+    controls.maxDistance = 20;
+    controls.minDistance = 3;
+
+    const ambient = new THREE.AmbientLight(0xffffff, 0.35);
+    scene.add(ambient);
+    const dir = new THREE.DirectionalLight(0x9fb6ff, 0.8);
+    dir.position.set(5, 6, 4);
+    scene.add(dir);
+
+    const fog = new THREE.FogExp2(0x060912, 0.04);
+    let fogEnabled = true;
+    scene.fog = fog;
+
+    const params = {
+      density: 4000,
+      spread: 1.2,
+      pointSize: 0.025,
+      baseColor: new THREE.Color("#7db0ff"),
+      preset: "nebula",
+    };
+
+    const hud = {
+      preset: document.getElementById("hudPreset"),
+      density: document.getElementById("hudDensity"),
+      spread: document.getElementById("hudSpread"),
+    };
+
+    let particles;
+    const velocities = [];
+    const drawTrail = [];
+    let envTexture = null;
+
+    const gestureState = {
+      openess: 0,
+      lastHandPos: null,
+      moodTimer: 0,
+    };
+
+    const status = {
+      camDot: document.getElementById("camDot"),
+      handDot: document.getElementById("handDot"),
+      moodDot: document.getElementById("moodDot"),
+    };
+
+    function setDot(el, on) {
+      el.classList.toggle("on", !!on);
+    }
+
+    function refreshHud() {
+      const presetLabel = {
+        nebula: "星云 Nebula",
+        tesseract: "四维模型 Hypercube",
+        vortex: "旋涡 Vortex",
+        ribbon: "丝带 Ribbon",
+      };
+      hud.preset.textContent = presetLabel[params.preset] || params.preset;
+      hud.density.textContent = params.density;
+      hud.spread.textContent = params.spread.toFixed(1);
+    }
+
+    function generateGeometry(count, preset) {
+      const positions = new Float32Array(count * 3);
+
+      const spread = params.spread * 4;
+      const rand = () => (Math.random() - 0.5) * spread;
+
+      const fill = (fn) => {
+        for (let i = 0; i < count; i++) {
+          const p = fn(i, count);
+          positions[i * 3] = p.x;
+          positions[i * 3 + 1] = p.y;
+          positions[i * 3 + 2] = p.z;
+        }
+      };
+
+      switch (preset) {
+        case "tesseract": {
+          const size = params.spread * 2.2;
+          fill((i) => {
+            const t = i / count * Math.PI * 2;
+            const w = Math.sin(t * 4) * size * 0.5;
+            return {
+              x: Math.sin(t) * size,
+              y: Math.cos(t * 0.75) * size,
+              z: Math.cos(t) * size,
+              w,
+            };
+          });
+          break;
+        }
+        case "vortex": {
+          fill((i) => {
+            const t = i / count * Math.PI * 8;
+            const r = params.spread * (i / count) * 2.2;
+            return {
+              x: Math.cos(t) * r,
+              y: (Math.sin(t * 0.5) * 0.5 + (i / count - 0.5)) * 2.4,
+              z: Math.sin(t) * r,
+            };
+          });
+          break;
+        }
+        case "ribbon": {
+          fill((i) => {
+            const t = i / count * Math.PI * 4;
+            return {
+              x: Math.sin(t) * params.spread * 1.8,
+              y: (Math.random() - 0.5) * 0.4,
+              z: Math.cos(t * 1.2) * params.spread * 1.8,
+            };
+          });
+          break;
+        }
+        default: {
+          fill(() => ({ x: rand(), y: rand(), z: rand() }));
+        }
+      }
+
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+      geometry.attributes.position.needsUpdate = true;
+      geometry.computeBoundingSphere();
+      return geometry;
+    }
+
+    function disposeParticles() {
+      if (!particles) return;
+      particles.geometry.dispose();
+      particles.material.dispose();
+      scene.remove(particles);
+      particles = null;
+    }
+
+    const particleTexture = (() => {
+      const size = 128;
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = size;
+      const ctx = canvas.getContext("2d");
+      const grd = ctx.createRadialGradient(
+        size / 2,
+        size / 2,
+        size * 0.08,
+        size / 2,
+        size / 2,
+        size * 0.5
+      );
+      grd.addColorStop(0, "rgba(255,255,255,0.95)");
+      grd.addColorStop(0.35, "rgba(255,255,255,0.9)");
+      grd.addColorStop(0.7, "rgba(255,255,255,0.35)");
+      grd.addColorStop(1, "rgba(255,255,255,0)");
+      ctx.fillStyle = grd;
+      ctx.fillRect(0, 0, size, size);
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      return texture;
+    })();
+
+    function createParticles() {
+      disposeParticles();
+      const geometry = generateGeometry(params.density, params.preset);
+      velocities.length = params.density * 3;
+      for (let i = 0; i < velocities.length; i++) {
+        velocities[i] = (Math.random() - 0.5) * 0.005;
+      }
+
+      const material = new THREE.PointsMaterial({
+        size: params.pointSize,
+        map: particleTexture,
+        color: params.baseColor,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        transparent: true,
+        opacity: 0.9,
+        sizeAttenuation: true,
+        alphaTest: 0.01,
+      });
+
+      particles = new THREE.Points(geometry, material);
+      scene.add(particles);
+
+      refreshHud();
+    }
+
+    createParticles();
+
+    const cursorBaseRadius = 0.018;
+    const fingerSizeFactor = 0.52;
+    const cursor = new THREE.Mesh(
+      new THREE.SphereGeometry(cursorBaseRadius, 12, 12),
+      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.6 })
+    );
+    scene.add(cursor);
+
+    function applyPointSize() {
+      if (particles && particles.material) {
+        particles.material.size = params.pointSize;
+        particles.material.needsUpdate = true;
+      }
+      const cursorScale = (params.pointSize * fingerSizeFactor) / cursorBaseRadius;
+      cursor.scale.setScalar(cursorScale);
+    }
+
+    applyPointSize();
+
+    const trailMaterial = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.7,
+      blending: THREE.AdditiveBlending,
+    });
+
+    function addTrail(position, color) {
+      const radius = Math.max(0.009, params.pointSize * fingerSizeFactor * 0.95);
+      const blob = new THREE.Mesh(new THREE.SphereGeometry(radius, 8, 8), trailMaterial.clone());
+      blob.material.color.copy(color);
+      blob.position.copy(position);
+      blob.material.opacity = 0.9;
+      blob.userData.life = 1.4;
+      scene.add(blob);
+      drawTrail.push(blob);
+    }
+
+    function updateTrails(delta) {
+      for (let i = drawTrail.length - 1; i >= 0; i--) {
+        const b = drawTrail[i];
+        b.userData.life -= delta;
+        b.material.opacity = Math.max(0, b.userData.life / 1.4);
+        b.scale.multiplyScalar(0.995);
+        if (b.userData.life <= 0) {
+          scene.remove(b);
+          b.geometry.dispose();
+          b.material.dispose();
+          drawTrail.splice(i, 1);
+        }
+      }
+    }
+
+    function normalizedToWorld(x, y, z = 0) {
+      const ndc = new THREE.Vector3((0.5 - x) * 2, -(y - 0.5) * 2, z * 2 - 1);
+      ndc.unproject(camera);
+      return ndc;
+    }
+
+    function computeOpeness(landmarks) {
+      const wrist = landmarks[0];
+      const tips = [8, 12, 16, 20];
+      const distances = tips.map((i) => {
+        const p = landmarks[i];
+        const dx = p.x - wrist.x;
+        const dy = p.y - wrist.y;
+        return Math.hypot(dx, dy);
+      });
+      const avg = distances.reduce((a, b) => a + b, 0) / distances.length;
+      return THREE.MathUtils.clamp(avg * 2.4, 0, 1.6);
+    }
+
+    function averageColorFromImage(file, onDone) {
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0);
+        const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+        let r = 0, g = 0, b = 0;
+        const step = Math.max(4, Math.floor(data.length / 4000));
+        let count = 0;
+        for (let i = 0; i < data.length; i += step * 4) {
+          r += data[i]; g += data[i + 1]; b += data[i + 2];
+          count++;
+        }
+        const color = new THREE.Color(`rgb(${Math.round(r / count)}, ${Math.round(g / count)}, ${Math.round(b / count)})`);
+        URL.revokeObjectURL(url);
+        onDone(color);
+      };
+      img.src = url;
+    }
+
+    function setBackgroundFromFile(file) {
+      const loader = new THREE.TextureLoader();
+      const url = URL.createObjectURL(file);
+      loader.load(url, (tex) => {
+        tex.mapping = THREE.EquirectangularReflectionMapping;
+        if (envTexture) envTexture.dispose();
+        envTexture = tex;
+        scene.environment = envTexture;
+        scene.background = envTexture;
+        URL.revokeObjectURL(url);
+      }, undefined, () => URL.revokeObjectURL(url));
+    }
+
+    let lastHandTime = 0;
+    let moodColor = params.baseColor.clone();
+
+    function onResults(results) {
+      const now = performance.now();
+      const hasHand = !!results.multiHandLandmarks && results.multiHandLandmarks.length;
+      setDot(status.handDot, hasHand);
+
+      if (hasHand) {
+        const hand = results.multiHandLandmarks[0];
+        const tip = hand[8];
+        const palm = hand[0];
+        const openness = computeOpeness(hand);
+        gestureState.openess = openness;
+
+        const worldPos = normalizedToWorld(tip.x, tip.y, 0.5);
+        cursor.position.copy(worldPos);
+        addTrail(worldPos, params.baseColor.clone().offsetHSL(0, 0, Math.random() * 0.05));
+
+        const pos = particles.geometry.attributes.position.array;
+        for (let i = 0; i < pos.length; i += 3) {
+          const vx = velocities[i];
+          const vy = velocities[i + 1];
+          const vz = velocities[i + 2];
+          pos[i] += vx;
+          pos[i + 1] += vy;
+          pos[i + 2] += vz;
+
+          const dx = worldPos.x - pos[i];
+          const dy = worldPos.y - pos[i + 1];
+          const dz = worldPos.z - pos[i + 2];
+          const dist = Math.hypot(dx, dy, dz) + 0.0001;
+          const attract = THREE.MathUtils.clamp(0.06 / dist, 0, 0.05) * openness;
+          pos[i] += dx * attract;
+          pos[i + 1] += dy * attract;
+          pos[i + 2] += dz * attract;
+        }
+
+        particles.geometry.attributes.position.needsUpdate = true;
+
+        const moveSpeed = gestureState.lastHandPos
+          ? worldPos.distanceTo(gestureState.lastHandPos)
+          : 0;
+        gestureState.lastHandPos = worldPos.clone();
+
+        // Mood color: big hand swing or closed fist toggles hue shift
+        if (moveSpeed > 0.4 || openness < 0.35) {
+          gestureState.moodTimer = 1.8;
+          const hueShift = (Math.sin(now * 0.001) + 1) * 0.25;
+          moodColor.setHSL(hueShift, 0.65, 0.65);
+          particles.material.color.copy(moodColor);
+          setDot(status.moodDot, true);
+        }
+      } else {
+        setDot(status.moodDot, false);
+        gestureState.lastHandPos = null;
+      }
+
+      if (!hasHand && now - lastHandTime > 2000) {
+        cursor.position.lerp(new THREE.Vector3(0, 0, 0), 0.04);
+      }
+
+      lastHandTime = now;
+    }
+
+    const hands = new Hands({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
+    });
+    hands.setOptions({
+      maxNumHands: 1,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.65,
+      minTrackingConfidence: 0.65,
+    });
+    hands.onResults(onResults);
+
+    let cameraStream;
+    let mpCamera;
+    const videoElement = document.getElementById("video");
+    const startBtn = document.getElementById("start");
+    const resetBtn = document.getElementById("resetView");
+    const toggleFogBtn = document.getElementById("toggleFog");
+
+    function applyFog() {
+      scene.fog = fogEnabled ? fog : null;
+      toggleFogBtn.textContent = fogEnabled ? "关闭雾效" : "开启雾效";
+    }
+
+    async function startCamera() {
+      if (cameraStream) return;
+      try {
+        cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
+        videoElement.srcObject = cameraStream;
+        await videoElement.play();
+        mpCamera = new Camera(videoElement, {
+          onFrame: async () => {
+            await hands.send({ image: videoElement });
+          },
+          width: 640,
+          height: 480,
+        });
+        mpCamera.start();
+        setDot(status.camDot, true);
+        startBtn.textContent = "关闭摄像头";
+      } catch (err) {
+        console.error("摄像头启动失败", err);
+        stopCamera();
+      }
+    }
+
+    function stopCamera() {
+      if (cameraStream) {
+        cameraStream.getTracks().forEach((t) => t.stop());
+        cameraStream = null;
+        setDot(status.camDot, false);
+        startBtn.textContent = "启动摄像头";
+      }
+      if (mpCamera) {
+        mpCamera.stop();
+        mpCamera = null;
+      }
+    }
+
+    startBtn.addEventListener("click", () => {
+      if (cameraStream) {
+        stopCamera();
+      } else {
+        startCamera();
+      }
+    });
+
+    resetBtn.addEventListener("click", () => {
+      camera.position.set(0, 0, 8);
+      controls.target.set(0, 0, 0);
+      controls.update();
+    });
+
+    toggleFogBtn.addEventListener("click", () => {
+      fogEnabled = !fogEnabled;
+      applyFog();
+    });
+
+    applyFog();
+
+    document.getElementById("density").addEventListener("input", (e) => {
+      params.density = parseInt(e.target.value, 10);
+      document.getElementById("densityLabel").textContent = e.target.value;
+      createParticles();
+      refreshHud();
+    });
+
+    document.getElementById("spread").addEventListener("input", (e) => {
+      params.spread = parseFloat(e.target.value);
+      document.getElementById("spreadLabel").textContent = e.target.value;
+      createParticles();
+      refreshHud();
+    });
+
+    document.getElementById("pointSize").addEventListener("input", (e) => {
+      params.pointSize = parseFloat(e.target.value);
+      document.getElementById("pointSizeLabel").textContent = params.pointSize.toFixed(3);
+      applyPointSize();
+    });
+
+    document.getElementById("color").addEventListener("input", (e) => {
+      params.baseColor.set(e.target.value);
+      moodColor.copy(params.baseColor);
+      particles.material.color.copy(params.baseColor);
+    });
+
+    document.getElementById("preset").addEventListener("change", (e) => {
+      params.preset = e.target.value;
+      createParticles();
+      refreshHud();
+    });
+
+    document.getElementById("paletteImage").addEventListener("change", (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      averageColorFromImage(file, (color) => {
+        params.baseColor.copy(color);
+        moodColor.copy(color);
+        particles.material.color.copy(params.baseColor);
+        document.getElementById("color").value = `#${color.getHexString()}`;
+      });
+    });
+
+    document.getElementById("bgImage").addEventListener("change", (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      setBackgroundFromFile(file);
+    });
+
+    document.getElementById("capture").addEventListener("click", () => {
+      const dataURL = renderer.domElement.toDataURL("image/png");
+      const a = document.createElement("a");
+      a.href = dataURL;
+      a.download = "gesture-particles.png";
+      a.click();
+    });
+
+    window.addEventListener("resize", () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    const clock = new THREE.Clock();
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const delta = clock.getDelta();
+
+      if (gestureState.moodTimer > 0) {
+        gestureState.moodTimer = Math.max(0, gestureState.moodTimer - delta);
+      } else if (!params.baseColor.equals(moodColor)) {
+        moodColor.lerp(params.baseColor, 0.02);
+        particles.material.color.copy(moodColor);
+      }
+
+      updateTrails(delta);
+      controls.update();
+      renderer.render(scene, camera);
+    }
+
+    animate();
+  </script>
+</body>
+</html>
