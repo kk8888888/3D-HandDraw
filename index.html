@@ -13,6 +13,9 @@
       --panel-stroke: rgba(255, 255, 255, 0.08);
       --accent: #5b9dff;
       --bg: radial-gradient(circle at 20% 20%, #0f172a, #090d14 50%, #05070c 100%);
+      --glow-1: #5b9dff;
+      --glow-2: #8c6cff;
+      --glow-3: #4bd6b5;
     }
 
     * {
@@ -43,6 +46,24 @@
                   radial-gradient(120% 120% at 80% 80%, rgba(132, 94, 255, 0.06), transparent);
       mix-blend-mode: screen;
       z-index: 1;
+    }
+
+    .aurora {
+      position: fixed;
+      inset: -20% -10% auto;
+      height: 60%;
+      pointer-events: none;
+      background: conic-gradient(from 180deg, rgba(91, 157, 255, 0.25), rgba(76, 214, 181, 0.35), rgba(140, 108, 255, 0.25), transparent 70%);
+      filter: blur(80px) saturate(140%);
+      opacity: 0.65;
+      animation: drift 18s ease-in-out infinite alternate;
+      z-index: 0;
+    }
+
+    @keyframes drift {
+      0% { transform: translate3d(-12%, 0, 0) rotate(2deg) scale(1); }
+      50% { transform: translate3d(8%, 6%, 0) rotate(-1deg) scale(1.05); }
+      100% { transform: translate3d(-6%, 10%, 0) rotate(3deg) scale(0.98); }
     }
 
     .panel {
@@ -126,6 +147,8 @@
       color: #90a2c2;
       margin-top: 10px;
       line-height: 1.4;
+      border-top: 1px solid var(--panel-stroke);
+      padding-top: 10px;
     }
 
     #video { display: none; }
@@ -176,11 +199,75 @@
       background: #3ad29f;
       box-shadow: 0 0 8px rgba(58, 210, 159, 0.7);
     }
+
+    .toolbar {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      display: flex;
+      gap: 10px;
+      z-index: 10;
+    }
+
+    .toolbar button {
+      width: auto;
+      padding: 10px 14px;
+      background: linear-gradient(135deg, rgba(91, 157, 255, 0.12), rgba(140, 108, 255, 0.12));
+      backdrop-filter: blur(8px);
+      border-radius: 12px;
+      border: 1px solid var(--panel-stroke);
+      font-size: 12px;
+      letter-spacing: 0.03em;
+    }
+
+    .hud {
+      position: fixed;
+      left: 50%;
+      bottom: 24px;
+      transform: translateX(-50%);
+      display: grid;
+      grid-template-columns: repeat(3, minmax(120px, 1fr));
+      gap: 12px;
+      z-index: 9;
+      pointer-events: none;
+    }
+
+    .hud-card {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--panel-stroke);
+      border-radius: 12px;
+      padding: 10px 12px;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.28);
+      backdrop-filter: blur(12px);
+    }
+
+    .hud .label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #94a7c7;
+      margin-bottom: 4px;
+    }
+
+    .hud .value {
+      font-size: 16px;
+      font-weight: 700;
+      color: #e6edf7;
+      text-shadow: 0 0 10px rgba(91, 157, 255, 0.4);
+    }
+
+    @media (max-width: 900px) {
+      .panel { width: calc(100% - 32px); left: 16px; right: 16px; }
+      .legend { right: 16px; left: 16px; bottom: 16px; }
+      .toolbar { right: 16px; left: 16px; justify-content: flex-end; flex-wrap: wrap; }
+      .hud { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); left: 16px; right: 16px; transform: none; }
+    }
   </style>
 </head>
 <body>
   <div id="scene-container"></div>
   <div class="chrome"></div>
+  <div class="aurora"></div>
 
   <div class="panel">
     <h1><span></span>手势驱动粒子云</h1>
@@ -232,6 +319,26 @@
     <div class="pill"><span class="status-dot" id="moodDot"></span>情绪色</div>
   </div>
 
+  <div class="toolbar">
+    <button id="resetView">重置视角</button>
+    <button id="toggleFog">关闭雾效</button>
+  </div>
+
+  <div class="hud">
+    <div class="hud-card">
+      <div class="label">当前预设</div>
+      <div class="value" id="hudPreset">星云 Nebula</div>
+    </div>
+    <div class="hud-card">
+      <div class="label">粒子</div>
+      <div class="value" id="hudDensity">4000</div>
+    </div>
+    <div class="hud-card">
+      <div class="label">扩散</div>
+      <div class="value" id="hudSpread">1.2</div>
+    </div>
+  </div>
+
   <video id="video" playsinline></video>
 
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
@@ -264,6 +371,7 @@
     scene.add(dir);
 
     const fog = new THREE.FogExp2(0x060912, 0.04);
+    let fogEnabled = true;
     scene.fog = fog;
 
     const params = {
@@ -271,6 +379,12 @@
       spread: 1.2,
       baseColor: new THREE.Color("#7db0ff"),
       preset: "nebula",
+    };
+
+    const hud = {
+      preset: document.getElementById("hudPreset"),
+      density: document.getElementById("hudDensity"),
+      spread: document.getElementById("hudSpread"),
     };
 
     let particles;
@@ -292,6 +406,18 @@
 
     function setDot(el, on) {
       el.classList.toggle("on", !!on);
+    }
+
+    function refreshHud() {
+      const presetLabel = {
+        nebula: "星云 Nebula",
+        tesseract: "四维模型 Hypercube",
+        vortex: "旋涡 Vortex",
+        ribbon: "丝带 Ribbon",
+      };
+      hud.preset.textContent = presetLabel[params.preset] || params.preset;
+      hud.density.textContent = params.density;
+      hud.spread.textContent = params.spread.toFixed(1);
     }
 
     function generateGeometry(count, preset) {
@@ -386,6 +512,8 @@
 
       particles = new THREE.Points(geometry, material);
       scene.add(particles);
+
+      refreshHud();
     }
 
     createParticles();
@@ -564,6 +692,13 @@
     let mpCamera;
     const videoElement = document.getElementById("video");
     const startBtn = document.getElementById("start");
+    const resetBtn = document.getElementById("resetView");
+    const toggleFogBtn = document.getElementById("toggleFog");
+
+    function applyFog() {
+      scene.fog = fogEnabled ? fog : null;
+      toggleFogBtn.textContent = fogEnabled ? "关闭雾效" : "开启雾效";
+    }
 
     async function startCamera() {
       if (cameraStream) return;
@@ -608,16 +743,31 @@
       }
     });
 
+    resetBtn.addEventListener("click", () => {
+      camera.position.set(0, 0, 8);
+      controls.target.set(0, 0, 0);
+      controls.update();
+    });
+
+    toggleFogBtn.addEventListener("click", () => {
+      fogEnabled = !fogEnabled;
+      applyFog();
+    });
+
+    applyFog();
+
     document.getElementById("density").addEventListener("input", (e) => {
       params.density = parseInt(e.target.value, 10);
       document.getElementById("densityLabel").textContent = e.target.value;
       createParticles();
+      refreshHud();
     });
 
     document.getElementById("spread").addEventListener("input", (e) => {
       params.spread = parseFloat(e.target.value);
       document.getElementById("spreadLabel").textContent = e.target.value;
       createParticles();
+      refreshHud();
     });
 
     document.getElementById("color").addEventListener("input", (e) => {
@@ -629,6 +779,7 @@
     document.getElementById("preset").addEventListener("change", (e) => {
       params.preset = e.target.value;
       createParticles();
+      refreshHud();
     });
 
     document.getElementById("paletteImage").addEventListener("change", (e) => {
