@@ -276,6 +276,7 @@
     let particles;
     const velocities = [];
     const drawTrail = [];
+    let envTexture = null;
 
     const gestureState = {
       openess: 0,
@@ -420,6 +421,8 @@
         b.scale.multiplyScalar(0.995);
         if (b.userData.life <= 0) {
           scene.remove(b);
+          b.geometry.dispose();
+          b.material.dispose();
           drawTrail.splice(i, 1);
         }
       }
@@ -473,10 +476,12 @@
       const url = URL.createObjectURL(file);
       loader.load(url, (tex) => {
         tex.mapping = THREE.EquirectangularReflectionMapping;
-        scene.environment = tex;
-        scene.background = tex;
+        if (envTexture) envTexture.dispose();
+        envTexture = tex;
+        scene.environment = envTexture;
+        scene.background = envTexture;
         URL.revokeObjectURL(url);
-      });
+      }, undefined, () => URL.revokeObjectURL(url));
     }
 
     let lastHandTime = 0;
@@ -556,6 +561,7 @@
     hands.onResults(onResults);
 
     let cameraStream;
+    let mpCamera;
     const videoElement = document.getElementById("video");
     const startBtn = document.getElementById("start");
 
@@ -565,7 +571,7 @@
         cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
         videoElement.srcObject = cameraStream;
         await videoElement.play();
-        const mpCamera = new Camera(videoElement, {
+        mpCamera = new Camera(videoElement, {
           onFrame: async () => {
             await hands.send({ image: videoElement });
           },
@@ -577,6 +583,7 @@
         startBtn.textContent = "关闭摄像头";
       } catch (err) {
         console.error("摄像头启动失败", err);
+        stopCamera();
       }
     }
 
@@ -586,6 +593,10 @@
         cameraStream = null;
         setDot(status.camDot, false);
         startBtn.textContent = "启动摄像头";
+      }
+      if (mpCamera) {
+        mpCamera.stop();
+        mpCamera = null;
       }
     }
 
